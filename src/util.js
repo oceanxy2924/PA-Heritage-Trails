@@ -1,194 +1,209 @@
 "use strict";
-/*!
- * Copyright 2018 Google Inc. All Rights Reserved.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-Object.defineProperty(exports, "__esModule", { value: true });
-const crypto_1 = require("crypto");
-const gapicConfig = require("./v1/firestore_client_config.json");
+
 /**
- * A Promise implementation that supports deferred resolution.
- * @private
- * @internal
+ * Various utility functions.
+ * @namespace
  */
-class Deferred {
-    constructor() {
-        this.resolve = () => { };
-        this.reject = () => { };
-        this.promise = new Promise((resolve, reject) => {
-            this.resolve = resolve;
-            this.reject = reject;
-        });
+var util = module.exports = require("./util/minimal");
+
+var roots = require("./roots");
+
+var Type, // cyclic
+    Enum;
+
+util.codegen = require("@protobufjs/codegen");
+util.fetch   = require("@protobufjs/fetch");
+util.path    = require("@protobufjs/path");
+
+/**
+ * Node's fs module if available.
+ * @type {Object.<string,*>}
+ */
+util.fs = util.inquire("fs");
+
+/**
+ * Converts an object's values to an array.
+ * @param {Object.<string,*>} object Object to convert
+ * @returns {Array.<*>} Converted array
+ */
+util.toArray = function toArray(object) {
+    if (object) {
+        var keys  = Object.keys(object),
+            array = new Array(keys.length),
+            index = 0;
+        while (index < keys.length)
+            array[index] = object[keys[index++]];
+        return array;
     }
-}
-exports.Deferred = Deferred;
+    return [];
+};
+
 /**
- * Generate a unique client-side identifier.
- *
- * Used for the creation of new documents.
- *
- * @private
- * @internal
- * @returns {string} A unique 20-character wide identifier.
+ * Converts an array of keys immediately followed by their respective value to an object, omitting undefined values.
+ * @param {Array.<*>} array Array to convert
+ * @returns {Object.<string,*>} Converted object
  */
-function autoId() {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    let autoId = '';
-    while (autoId.length < 20) {
-        const bytes = crypto_1.randomBytes(40);
-        bytes.forEach(b => {
-            // Length of `chars` is 62. We only take bytes between 0 and 62*4-1
-            // (both inclusive). The value is then evenly mapped to indices of `char`
-            // via a modulo operation.
-            const maxValue = 62 * 4 - 1;
-            if (autoId.length < 20 && b <= maxValue) {
-                autoId += chars.charAt(b % 62);
-            }
-        });
+util.toObject = function toObject(array) {
+    var object = {},
+        index  = 0;
+    while (index < array.length) {
+        var key = array[index++],
+            val = array[index++];
+        if (val !== undefined)
+            object[key] = val;
     }
-    return autoId;
-}
-exports.autoId = autoId;
+    return object;
+};
+
+var safePropBackslashRe = /\\/g,
+    safePropQuoteRe     = /"/g;
+
 /**
- * Generate a short and semi-random client-side identifier.
- *
- * Used for the creation of request tags.
- *
- * @private
- * @internal
- * @returns {string} A random 5-character wide identifier.
+ * Tests whether the specified name is a reserved word in JS.
+ * @param {string} name Name to test
+ * @returns {boolean} `true` if reserved, otherwise `false`
  */
-function requestTag() {
-    return autoId().substr(0, 5);
-}
-exports.requestTag = requestTag;
+util.isReserved = function isReserved(name) {
+    return /^(?:do|if|in|for|let|new|try|var|case|else|enum|eval|false|null|this|true|void|with|break|catch|class|const|super|throw|while|yield|delete|export|import|public|return|static|switch|typeof|default|extends|finally|package|private|continue|debugger|function|arguments|interface|protected|implements|instanceof)$/.test(name);
+};
+
 /**
- * Determines whether `value` is a JavaScript object.
- *
- * @private
- * @internal
+ * Returns a safe property accessor for the specified property name.
+ * @param {string} prop Property name
+ * @returns {string} Safe accessor
  */
-function isObject(value) {
-    return Object.prototype.toString.call(value) === '[object Object]';
-}
-exports.isObject = isObject;
+util.safeProp = function safeProp(prop) {
+    if (!/^[$\w_]+$/.test(prop) || util.isReserved(prop))
+        return "[\"" + prop.replace(safePropBackslashRe, "\\\\").replace(safePropQuoteRe, "\\\"") + "\"]";
+    return "." + prop;
+};
+
 /**
- * Verifies that 'obj' is a plain JavaScript object that can be encoded as a
- * 'Map' in Firestore.
- *
- * @private
- * @internal
- * @param input The argument to verify.
- * @returns 'true' if the input can be a treated as a plain object.
+ * Converts the first character of a string to upper case.
+ * @param {string} str String to convert
+ * @returns {string} Converted string
  */
-function isPlainObject(input) {
-    return (isObject(input) &&
-        (Object.getPrototypeOf(input) === Object.prototype ||
-            Object.getPrototypeOf(input) === null ||
-            input.constructor.name === 'Object'));
-}
-exports.isPlainObject = isPlainObject;
+util.ucFirst = function ucFirst(str) {
+    return str.charAt(0).toUpperCase() + str.substring(1);
+};
+
+var camelCaseRe = /_([a-z])/g;
+
 /**
- * Returns whether `value` has no custom properties.
- *
- * @private
- * @internal
+ * Converts a string to camel case.
+ * @param {string} str String to convert
+ * @returns {string} Converted string
  */
-function isEmpty(value) {
-    return Object.keys(value).length === 0;
-}
-exports.isEmpty = isEmpty;
+util.camelCase = function camelCase(str) {
+    return str.substring(0, 1)
+         + str.substring(1)
+               .replace(camelCaseRe, function($0, $1) { return $1.toUpperCase(); });
+};
+
 /**
- * Determines whether `value` is a JavaScript function.
- *
- * @private
- * @internal
+ * Compares reflected fields by id.
+ * @param {Field} a First field
+ * @param {Field} b Second field
+ * @returns {number} Comparison value
  */
-function isFunction(value) {
-    return typeof value === 'function';
-}
-exports.isFunction = isFunction;
+util.compareFieldsById = function compareFieldsById(a, b) {
+    return a.id - b.id;
+};
+
 /**
- * Determines whether the provided error is considered permanent for the given
- * RPC.
- *
- * @private
- * @internal
+ * Decorator helper for types (TypeScript).
+ * @param {Constructor<T>} ctor Constructor function
+ * @param {string} [typeName] Type name, defaults to the constructor's name
+ * @returns {Type} Reflected type
+ * @template T extends Message<T>
+ * @property {Root} root Decorators root
  */
-function isPermanentRpcError(err, methodName) {
-    if (err.code !== undefined) {
-        const retryCodes = getRetryCodes(methodName);
-        return retryCodes.indexOf(err.code) === -1;
+util.decorateType = function decorateType(ctor, typeName) {
+
+    /* istanbul ignore if */
+    if (ctor.$type) {
+        if (typeName && ctor.$type.name !== typeName) {
+            util.decorateRoot.remove(ctor.$type);
+            ctor.$type.name = typeName;
+            util.decorateRoot.add(ctor.$type);
+        }
+        return ctor.$type;
     }
-    else {
-        return false;
+
+    /* istanbul ignore next */
+    if (!Type)
+        Type = require("./type");
+
+    var type = new Type(typeName || ctor.name);
+    util.decorateRoot.add(type);
+    type.ctor = ctor; // sets up .encode, .decode etc.
+    Object.defineProperty(ctor, "$type", { value: type, enumerable: false });
+    Object.defineProperty(ctor.prototype, "$type", { value: type, enumerable: false });
+    return type;
+};
+
+var decorateEnumIndex = 0;
+
+/**
+ * Decorator helper for enums (TypeScript).
+ * @param {Object} object Enum object
+ * @returns {Enum} Reflected enum
+ */
+util.decorateEnum = function decorateEnum(object) {
+
+    /* istanbul ignore if */
+    if (object.$type)
+        return object.$type;
+
+    /* istanbul ignore next */
+    if (!Enum)
+        Enum = require("./enum");
+
+    var enm = new Enum("Enum" + decorateEnumIndex++, object);
+    util.decorateRoot.add(enm);
+    Object.defineProperty(object, "$type", { value: enm, enumerable: false });
+    return enm;
+};
+
+
+/**
+ * Sets the value of a property by property path. If a value already exists, it is turned to an array
+ * @param {Object.<string,*>} dst Destination object
+ * @param {string} path dot '.' delimited path of the property to set
+ * @param {Object} value the value to set
+ * @returns {Object.<string,*>} Destination object
+ */
+util.setProperty = function setProperty(dst, path, value) {
+    function setProp(dst, path, value) {
+        var part = path.shift();
+        if (path.length > 0) {
+            dst[part] = setProp(dst[part] || {}, path, value);
+        } else {
+            var prevValue = dst[part];
+            if (prevValue)
+                value = [].concat(prevValue).concat(value);
+            dst[part] = value;
+        }
+        return dst;
     }
-}
-exports.isPermanentRpcError = isPermanentRpcError;
-let serviceConfig;
-/** Lazy-loads the service config when first accessed. */
-function getServiceConfig(methodName) {
-    if (!serviceConfig) {
-        serviceConfig = require('google-gax').constructSettings('google.firestore.v1.Firestore', gapicConfig, {}, require('google-gax').Status);
+
+    if (typeof dst !== "object")
+        throw TypeError("dst must be an object");
+    if (!path)
+        throw TypeError("path must be specified");
+
+    path = path.split(".");
+    return setProp(dst, path, value);
+};
+
+/**
+ * Decorator root (TypeScript).
+ * @name util.decorateRoot
+ * @type {Root}
+ * @readonly
+ */
+Object.defineProperty(util, "decorateRoot", {
+    get: function() {
+        return roots["decorated"] || (roots["decorated"] = new (require("./root"))());
     }
-    return serviceConfig[methodName];
-}
-/**
- * Returns the list of retryable error codes specified in the service
- * configuration.
- * @private
- * @internal
- */
-function getRetryCodes(methodName) {
-    var _a, _b, _c;
-    return (_c = (_b = (_a = getServiceConfig(methodName)) === null || _a === void 0 ? void 0 : _a.retry) === null || _b === void 0 ? void 0 : _b.retryCodes) !== null && _c !== void 0 ? _c : [];
-}
-exports.getRetryCodes = getRetryCodes;
-/**
- * Returns the backoff setting from the service configuration.
- * @private
- * @internal
- */
-function getRetryParams(methodName) {
-    var _a, _b, _c;
-    return ((_c = (_b = (_a = getServiceConfig(methodName)) === null || _a === void 0 ? void 0 : _a.retry) === null || _b === void 0 ? void 0 : _b.backoffSettings) !== null && _c !== void 0 ? _c : require('google-gax').createDefaultBackoffSettings());
-}
-exports.getRetryParams = getRetryParams;
-/**
- * Returns a promise with a void return type. The returned promise swallows all
- * errors and never throws.
- *
- * This is primarily used to wait for a promise to complete when the result of
- * the promise will be discarded.
- *
- * @private
- * @internal
- */
-function silencePromise(promise) {
-    return promise.then(() => { }, () => { });
-}
-exports.silencePromise = silencePromise;
-/**
- * Wraps the provided error in a new error that includes the provided stack.
- *
- * Used to preserve stack traces across async calls.
- * @private
- * @internal
- */
-function wrapError(err, stack) {
-    err.stack += '\nCaused by: ' + stack;
-    return err;
-}
-exports.wrapError = wrapError;
-//# sourceMappingURL=util.js.map
+});
