@@ -1,0 +1,7 @@
+{
+  "projects": {
+    "default": "pa-heritage-trails",
+    "staging": "pa-heritage-trails"
+  },
+  "targets": {}
+}
