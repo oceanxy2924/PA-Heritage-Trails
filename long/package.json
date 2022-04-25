@@ -1,24 +1,34 @@
 {
-    "name": "@types/long",
-    "version": "4.0.1",
-    "description": "TypeScript definitions for long.js",
-    "license": "MIT",
-    "contributors": [
-        {
-            "name": "Peter Kooijmans",
-            "url": "https://github.com/peterkooijmans",
-            "githubUsername": "peterkooijmans"
-        }
-    ],
-    "main": "",
-    "types": "index.d.ts",
+    "name": "long",
+    "version": "4.0.0",
+    "author": "Daniel Wirtz <dcode@dcode.io>",
+    "description": "A Long class for representing a 64-bit two's-complement integer value.",
+    "main": "src/long.js",
     "repository": {
         "type": "git",
-        "url": "https://github.com/DefinitelyTyped/DefinitelyTyped.git",
-        "directory": "types/long"
+        "url": "https://github.com/dcodeIO/long.js.git"
     },
-    "scripts": {},
+    "bugs": {
+        "url": "https://github.com/dcodeIO/long.js/issues"
+    },
+    "keywords": [
+        "math"
+    ],
     "dependencies": {},
-    "typesPublisherContentHash": "5a2ae1424989c49d7303e1f5cc510288bfab1e71e0e2143cdcb9d24ff1c3dc8e",
-    "typeScriptVersion": "2.8"
+    "devDependencies": {
+        "webpack": "^3.10.0"
+    },
+    "license": "Apache-2.0",
+    "scripts": {
+        "build": "webpack",
+        "test": "node tests"
+    },
+    "files": [
+        "index.js",
+        "LICENSE",
+        "README.md",
+        "src/long.js",
+        "dist/long.js",
+        "dist/long.js.map"
+    ]
 }
