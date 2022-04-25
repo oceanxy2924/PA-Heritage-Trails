@@ -1,3 +1,4 @@
+"use strict";
 /*!
  * Copyright 2017 Google Inc. All Rights Reserved.
  *
@@ -13,41 +14,106 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/// <reference types="node" />
-import * as firestore from '@google-cloud/firestore';
-import { Duplex } from 'stream';
-import { google } from '../protos/firestore_v1_proto_api';
-import { BulkWriter } from './bulk-writer';
-import { BundleBuilder } from './bundle';
-import { DocumentSnapshot, QueryDocumentSnapshot } from './document';
-import { CollectionReference, DocumentReference } from './reference';
-import { Serializer } from './serializer';
-import { Transaction } from './transaction';
-import { FirestoreStreamingMethod, FirestoreUnaryMethod } from './types';
-import { WriteBatch } from './write-batch';
-import api = google.firestore.v1;
-import { CollectionGroup } from './collection-group';
-export { CollectionReference, DocumentReference, QuerySnapshot, Query, } from './reference';
-export { BulkWriter } from './bulk-writer';
-export { DocumentSnapshot, QueryDocumentSnapshot } from './document';
-export { FieldValue } from './field-value';
-export { WriteBatch, WriteResult } from './write-batch';
-export { Transaction } from './transaction';
-export { Timestamp } from './timestamp';
-export { DocumentChange } from './document-change';
-export { FieldPath } from './path';
-export { GeoPoint } from './geo-point';
-export { CollectionGroup };
-export { QueryPartition } from './query-partition';
-export { setLogFunction } from './logger';
+Object.defineProperty(exports, "__esModule", { value: true });
+const stream_1 = require("stream");
+const url_1 = require("url");
+const backoff_1 = require("./backoff");
+const bulk_writer_1 = require("./bulk-writer");
+const bundle_1 = require("./bundle");
+const convert_1 = require("./convert");
+const document_reader_1 = require("./document-reader");
+const document_1 = require("./document");
+const logger_1 = require("./logger");
+const path_1 = require("./path");
+const pool_1 = require("./pool");
+const reference_1 = require("./reference");
+const serializer_1 = require("./serializer");
+const timestamp_1 = require("./timestamp");
+const transaction_1 = require("./transaction");
+const util_1 = require("./util");
+const validate_1 = require("./validate");
+const write_batch_1 = require("./write-batch");
+const firestore_client_config_json_1 = require("./v1/firestore_client_config.json");
+const serviceConfig = firestore_client_config_json_1.interfaces['google.firestore.v1.Firestore'];
+const collection_group_1 = require("./collection-group");
+exports.CollectionGroup = collection_group_1.CollectionGroup;
+const recursive_delete_1 = require("./recursive-delete");
+var reference_2 = require("./reference");
+exports.CollectionReference = reference_2.CollectionReference;
+exports.DocumentReference = reference_2.DocumentReference;
+exports.QuerySnapshot = reference_2.QuerySnapshot;
+exports.Query = reference_2.Query;
+var bulk_writer_2 = require("./bulk-writer");
+exports.BulkWriter = bulk_writer_2.BulkWriter;
+var document_2 = require("./document");
+exports.DocumentSnapshot = document_2.DocumentSnapshot;
+exports.QueryDocumentSnapshot = document_2.QueryDocumentSnapshot;
+var field_value_1 = require("./field-value");
+exports.FieldValue = field_value_1.FieldValue;
+var write_batch_2 = require("./write-batch");
+exports.WriteBatch = write_batch_2.WriteBatch;
+exports.WriteResult = write_batch_2.WriteResult;
+var transaction_2 = require("./transaction");
+exports.Transaction = transaction_2.Transaction;
+var timestamp_2 = require("./timestamp");
+exports.Timestamp = timestamp_2.Timestamp;
+var document_change_1 = require("./document-change");
+exports.DocumentChange = document_change_1.DocumentChange;
+var path_2 = require("./path");
+exports.FieldPath = path_2.FieldPath;
+var geo_point_1 = require("./geo-point");
+exports.GeoPoint = geo_point_1.GeoPoint;
+var query_partition_1 = require("./query-partition");
+exports.QueryPartition = query_partition_1.QueryPartition;
+var logger_2 = require("./logger");
+exports.setLogFunction = logger_2.setLogFunction;
+const libVersion = require('../../package.json').version;
+logger_1.setLibVersion(libVersion);
+/*!
+ * DO NOT REMOVE THE FOLLOWING NAMESPACE DEFINITIONS
+ */
+/**
+ * @namespace google.protobuf
+ */
+/**
+ * @namespace google.rpc
+ */
+/**
+ * @namespace google.longrunning
+ */
+/**
+ * @namespace google.firestore.v1
+ */
+/**
+ * @namespace google.firestore.v1beta1
+ */
+/**
+ * @namespace google.firestore.admin.v1
+ */
+/*!
+ * HTTP header for the resource prefix to improve routing and project isolation
+ * by the backend.
+ */
+const CLOUD_RESOURCE_HEADER = 'google-cloud-resource-prefix';
 /*!
  * The maximum number of times to retry idempotent requests.
  */
-export declare const MAX_REQUEST_RETRIES = 5;
+exports.MAX_REQUEST_RETRIES = 5;
 /*!
  * The maximum number of times to attempt a transaction before failing.
  */
-export declare const DEFAULT_MAX_TRANSACTION_ATTEMPTS = 5;
+exports.DEFAULT_MAX_TRANSACTION_ATTEMPTS = 5;
+/*!
+ * The default number of idle GRPC channel to keep.
+ */
+const DEFAULT_MAX_IDLE_CHANNELS = 1;
+/*!
+ * The maximum number of concurrent requests supported by a single GRPC channel,
+ * as enforced by Google's Frontend. If the SDK issues more than 100 concurrent
+ * operations, we need to use more than one GAPIC client since these clients
+ * multiplex all requests over a single channel.
+ */
+const MAX_CONCURRENT_REQUESTS_PER_CLIENT = 100;
 /**
  * Document data (e.g. for use with
  * [set()]{@link DocumentReference#set}) consisting of fields mapped
@@ -255,81 +321,7 @@ export declare const DEFAULT_MAX_TRANSACTION_ATTEMPTS = 5;
  * region_tag:firestore_quickstart
  * Full quickstart example:
  */
-export declare class Firestore implements firestore.Firestore {
-    /**
-     * A client pool to distribute requests over multiple GAPIC clients in order
-     * to work around a connection limit of 100 concurrent requests per client.
-     * @private
-     * @internal
-     */
-    private _clientPool;
-    /**
-     * The configuration options for the GAPIC client.
-     * @private
-     * @internal
-     */
-    _settings: firestore.Settings;
-    /**
-     * Settings for the exponential backoff used by the streaming endpoints.
-     * @private
-     * @internal
-     */
-    private _backoffSettings;
-    /**
-     * Whether the initialization settings can still be changed by invoking
-     * `settings()`.
-     * @private
-     * @internal
-     */
-    private _settingsFrozen;
-    /**
-     * The serializer to use for the Protobuf transformation.
-     * @private
-     * @internal
-     */
-    _serializer: Serializer | null;
-    /**
-     * The project ID for this client.
-     *
-     * The project ID is auto-detected during the first request unless a project
-     * ID is passed to the constructor (or provided via `.settings()`).
-     * @private
-     * @internal
-     */
-    private _projectId;
-    /**
-     * Count of listeners that have been registered on the client.
-     *
-     * The client can only be terminated when there are no pending writes or
-     * registered listeners.
-     * @private
-     * @internal
-     */
-    private registeredListenersCount;
-    /**
-     * A lazy-loaded BulkWriter instance to be used with recursiveDelete() if no
-     * BulkWriter instance is provided.
-     *
-     * @private
-     * @internal
-     */
-    private _bulkWriter;
-    /**
-     * Lazy-load the Firestore's default BulkWriter.
-     *
-     * @private
-     * @internal
-     */
-    private getBulkWriter;
-    /**
-     * Number of pending operations on the client.
-     *
-     * The client can only be terminated when there are no pending writes or
-     * registered listeners.
-     * @private
-     * @internal
-     */
-    private bulkWritersCount;
+class Firestore {
     /**
      * @param {Object=} settings [Configuration object](#/docs).
      * @param {string=} settings.projectId The project ID from the Google
@@ -364,7 +356,103 @@ export declare class Firestore implements firestore.Firestore {
      * set `false` or omitted, the SDK throws an exception when it encounters
      * properties of type `undefined`.
      */
-    constructor(settings?: firestore.Settings);
+    constructor(settings) {
+        /**
+         * The configuration options for the GAPIC client.
+         * @private
+         * @internal
+         */
+        this._settings = {};
+        /**
+         * Whether the initialization settings can still be changed by invoking
+         * `settings()`.
+         * @private
+         * @internal
+         */
+        this._settingsFrozen = false;
+        /**
+         * The serializer to use for the Protobuf transformation.
+         * @private
+         * @internal
+         */
+        this._serializer = null;
+        /**
+         * The project ID for this client.
+         *
+         * The project ID is auto-detected during the first request unless a project
+         * ID is passed to the constructor (or provided via `.settings()`).
+         * @private
+         * @internal
+         */
+        this._projectId = undefined;
+        /**
+         * Count of listeners that have been registered on the client.
+         *
+         * The client can only be terminated when there are no pending writes or
+         * registered listeners.
+         * @private
+         * @internal
+         */
+        this.registeredListenersCount = 0;
+        /**
+         * Number of pending operations on the client.
+         *
+         * The client can only be terminated when there are no pending writes or
+         * registered listeners.
+         * @private
+         * @internal
+         */
+        this.bulkWritersCount = 0;
+        const libraryHeader = {
+            libName: 'gccl',
+            libVersion,
+        };
+        if (settings && settings.firebaseVersion) {
+            libraryHeader.libVersion += ' fire/' + settings.firebaseVersion;
+        }
+        this.validateAndApplySettings({ ...settings, ...libraryHeader });
+        const retryConfig = serviceConfig.retry_params.default;
+        this._backoffSettings = {
+            initialDelayMs: retryConfig.initial_retry_delay_millis,
+            maxDelayMs: retryConfig.max_retry_delay_millis,
+            backoffFactor: retryConfig.retry_delay_multiplier,
+        };
+        const maxIdleChannels = this._settings.maxIdleChannels === undefined
+            ? DEFAULT_MAX_IDLE_CHANNELS
+            : this._settings.maxIdleChannels;
+        this._clientPool = new pool_1.ClientPool(MAX_CONCURRENT_REQUESTS_PER_CLIENT, maxIdleChannels, 
+        /* clientFactory= */ () => {
+            var _a;
+            let client;
+            if (this._settings.ssl === false) {
+                const grpcModule = (_a = this._settings.grpc) !== null && _a !== void 0 ? _a : require('google-gax').grpc;
+                const sslCreds = grpcModule.credentials.createInsecure();
+                client = new module.exports.v1({
+                    sslCreds,
+                    ...this._settings,
+                });
+            }
+            else {
+                client = new module.exports.v1(this._settings);
+            }
+            logger_1.logger('Firestore', null, 'Initialized Firestore GAPIC Client');
+            return client;
+        }, 
+        /* clientDestructor= */ client => client.close());
+        logger_1.logger('Firestore', null, 'Initialized Firestore');
+    }
+    /**
+     * Lazy-load the Firestore's default BulkWriter.
+     *
+     * @private
+     * @internal
+     */
+    getBulkWriter() {
+        if (!this._bulkWriter) {
+            this._bulkWriter = this.bulkWriter();
+        }
+        return this._bulkWriter;
+    }
     /**
      * Specifies custom settings to be used to configure the `Firestore`
      * instance. Can only be invoked once and before any other Firestore method.
@@ -375,8 +463,71 @@ export declare class Firestore implements firestore.Firestore {
      *
      * @param {object} settings The settings to use for all Firestore operations.
      */
-    settings(settings: firestore.Settings): void;
-    private validateAndApplySettings;
+    settings(settings) {
+        validate_1.validateObject('settings', settings);
+        validate_1.validateString('settings.projectId', settings.projectId, { optional: true });
+        if (this._settingsFrozen) {
+            throw new Error('Firestore has already been initialized. You can only call ' +
+                'settings() once, and only before calling any other methods on a ' +
+                'Firestore object.');
+        }
+        const mergedSettings = { ...this._settings, ...settings };
+        this.validateAndApplySettings(mergedSettings);
+        this._settingsFrozen = true;
+    }
+    validateAndApplySettings(settings) {
+        var _a;
+        if (settings.projectId !== undefined) {
+            validate_1.validateString('settings.projectId', settings.projectId);
+            this._projectId = settings.projectId;
+        }
+        let url = null;
+        // If the environment variable is set, it should always take precedence
+        // over any user passed in settings.
+        if (process.env.FIRESTORE_EMULATOR_HOST) {
+            validate_1.validateHost('FIRESTORE_EMULATOR_HOST', process.env.FIRESTORE_EMULATOR_HOST);
+            settings = {
+                ...settings,
+                host: process.env.FIRESTORE_EMULATOR_HOST,
+                ssl: false,
+            };
+            url = new url_1.URL(`http://${settings.host}`);
+        }
+        else if (settings.host !== undefined) {
+            validate_1.validateHost('settings.host', settings.host);
+            url = new url_1.URL(`http://${settings.host}`);
+        }
+        // Only store the host if a valid value was provided in `host`.
+        if (url !== null) {
+            if ((settings.servicePath !== undefined &&
+                settings.servicePath !== url.hostname) ||
+                (settings.apiEndpoint !== undefined &&
+                    settings.apiEndpoint !== url.hostname)) {
+                // eslint-disable-next-line no-console
+                console.warn(`The provided host (${url.hostname}) in "settings" does not ` +
+                    `match the existing host (${(_a = settings.servicePath) !== null && _a !== void 0 ? _a : settings.apiEndpoint}). Using the provided host.`);
+            }
+            settings.servicePath = url.hostname;
+            if (url.port !== '' && settings.port === undefined) {
+                settings.port = Number(url.port);
+            }
+            // We need to remove the `host` and `apiEndpoint` setting, in case a user
+            // calls `settings()`, which will compare the the provided `host` to the
+            // existing hostname stored on `servicePath`.
+            delete settings.host;
+            delete settings.apiEndpoint;
+        }
+        if (settings.ssl !== undefined) {
+            validate_1.validateBoolean('settings.ssl', settings.ssl);
+        }
+        if (settings.maxIdleChannels !== undefined) {
+            validate_1.validateInteger('settings.maxIdleChannels', settings.maxIdleChannels, {
+                minValue: 0,
+            });
+        }
+        this._settings = settings;
+        this._serializer = new serializer_1.Serializer(this);
+    }
     /**
      * Returns the Project ID for this Firestore instance. Validates that
      * `initializeIfNeeded()` was called before.
@@ -384,7 +535,12 @@ export declare class Firestore implements firestore.Firestore {
      * @private
      * @internal
      */
-    get projectId(): string;
+    get projectId() {
+        if (this._projectId === undefined) {
+            throw new Error('INTERNAL ERROR: Client is not yet ready to issue requests.');
+        }
+        return this._projectId;
+    }
     /**
      * Returns the root path of the database. Validates that
      * `initializeIfNeeded()` was called before.
@@ -392,7 +548,9 @@ export declare class Firestore implements firestore.Firestore {
      * @private
      * @internal
      */
-    get formattedName(): string;
+    get formattedName() {
+        return `projects/${this.projectId}/databases/${path_1.DEFAULT_DATABASE_ID}`;
+    }
     /**
      * Gets a [DocumentReference]{@link DocumentReference} instance that
      * refers to the document at the specified path.
@@ -405,7 +563,14 @@ export declare class Firestore implements firestore.Firestore {
      * let documentRef = firestore.doc('collection/document');
      * console.log(`Path of document is ${documentRef.path}`);
      */
-    doc(documentPath: string): DocumentReference;
+    doc(documentPath) {
+        path_1.validateResourcePath('documentPath', documentPath);
+        const path = path_1.ResourcePath.EMPTY.append(documentPath);
+        if (!path.isDocument) {
+            throw new Error(`Value for argument "documentPath" must point to a document, but was "${documentPath}". Your path does not contain an even number of components.`);
+        }
+        return new reference_1.DocumentReference(this, path);
+    }
     /**
      * Gets a [CollectionReference]{@link CollectionReference} instance
      * that refers to the collection at the specified path.
@@ -422,7 +587,14 @@ export declare class Firestore implements firestore.Firestore {
      *   console.log(`Added document at ${documentRef.path})`);
      * });
      */
-    collection(collectionPath: string): CollectionReference;
+    collection(collectionPath) {
+        path_1.validateResourcePath('collectionPath', collectionPath);
+        const path = path_1.ResourcePath.EMPTY.append(collectionPath);
+        if (!path.isCollection) {
+            throw new Error(`Value for argument "collectionPath" must point to a collection, but was "${collectionPath}". Your path does not contain an odd number of components.`);
+        }
+        return new reference_1.CollectionReference(this, path);
+    }
     /**
      * Creates and returns a new Query that includes all documents in the
      * database that are contained in a collection or subcollection with the
@@ -445,7 +617,12 @@ export declare class Firestore implements firestore.Firestore {
      *    });
      * });
      */
-    collectionGroup(collectionId: string): CollectionGroup;
+    collectionGroup(collectionId) {
+        if (collectionId.indexOf('/') !== -1) {
+            throw new Error(`Invalid collectionId '${collectionId}'. Collection IDs must not contain '/'.`);
+        }
+        return new collection_group_1.CollectionGroup(this, collectionId, /* converter= */ undefined);
+    }
     /**
      * Creates a [WriteBatch]{@link WriteBatch}, used for performing
      * multiple writes as a single atomic operation.
@@ -465,7 +642,9 @@ export declare class Firestore implements firestore.Firestore {
      *   console.log('Successfully executed batch.');
      * });
      */
-    batch(): WriteBatch;
+    batch() {
+        return new write_batch_1.WriteBatch(this);
+    }
     /**
      * Creates a [BulkWriter]{@link BulkWriter}, used for performing
      * multiple writes in parallel. Gradually ramps up writes as specified
@@ -499,33 +678,47 @@ export declare class Firestore implements firestore.Firestore {
      *   console.log('Executed all writes');
      * });
      */
-    bulkWriter(options?: firestore.BulkWriterOptions): BulkWriter;
-    /**
-     * Creates a [DocumentSnapshot]{@link DocumentSnapshot} or a
-     * [QueryDocumentSnapshot]{@link QueryDocumentSnapshot} from a
-     * `firestore.v1.Document` proto (or from a resource name for missing
-     * documents).
-     *
-     * This API is used by Google Cloud Functions and can be called with both
-     * 'Proto3 JSON' and 'Protobuf JS' encoded data.
-     *
-     * @private
-     * @internal
-     * @param documentOrName The Firestore 'Document' proto or the resource name
-     * of a missing document.
-     * @param readTime A 'Timestamp' proto indicating the time this document was
-     * read.
-     * @param encoding One of 'json' or 'protobufJS'. Applies to both the
-     * 'document' Proto and 'readTime'. Defaults to 'protobufJS'.
-     * @returns A QueryDocumentSnapshot for existing documents, otherwise a
-     * DocumentSnapshot.
-     */
-    snapshot_(documentName: string, readTime?: google.protobuf.ITimestamp, encoding?: 'protobufJS'): DocumentSnapshot;
-    snapshot_(documentName: string, readTime: string, encoding: 'json'): DocumentSnapshot;
-    snapshot_(document: api.IDocument, readTime: google.protobuf.ITimestamp, encoding?: 'protobufJS'): QueryDocumentSnapshot;
-    snapshot_(document: {
-        [k: string]: unknown;
-    }, readTime: string, encoding: 'json'): QueryDocumentSnapshot;
+    bulkWriter(options) {
+        return new bulk_writer_1.BulkWriter(this, options);
+    }
+    snapshot_(documentOrName, readTime, encoding) {
+        // TODO: Assert that Firestore Project ID is valid.
+        let convertTimestamp;
+        let convertFields;
+        if (encoding === undefined || encoding === 'protobufJS') {
+            convertTimestamp = data => data;
+            convertFields = data => data;
+        }
+        else if (encoding === 'json') {
+            // Google Cloud Functions calls us with Proto3 JSON format data, which we
+            // must convert to Protobuf JS.
+            convertTimestamp = convert_1.timestampFromJson;
+            convertFields = convert_1.fieldsFromJson;
+        }
+        else {
+            throw new Error('Unsupported encoding format. Expected "json" or "protobufJS", ' +
+                `but was "${encoding}".`);
+        }
+        let ref;
+        let document;
+        if (typeof documentOrName === 'string') {
+            ref = new reference_1.DocumentReference(this, path_1.QualifiedResourcePath.fromSlashSeparatedString(documentOrName));
+            document = new document_1.DocumentSnapshotBuilder(ref);
+        }
+        else {
+            ref = new reference_1.DocumentReference(this, path_1.QualifiedResourcePath.fromSlashSeparatedString(documentOrName.name));
+            document = new document_1.DocumentSnapshotBuilder(ref);
+            document.fieldsProto = documentOrName.fields
+                ? convertFields(documentOrName.fields)
+                : {};
+            document.createTime = timestamp_1.Timestamp.fromProto(convertTimestamp(documentOrName.createTime, 'documentOrName.createTime'));
+            document.updateTime = timestamp_1.Timestamp.fromProto(convertTimestamp(documentOrName.updateTime, 'documentOrName.updateTime'));
+        }
+        if (readTime) {
+            document.readTime = timestamp_1.Timestamp.fromProto(convertTimestamp(readTime, 'readTime'));
+        }
+        return document.build();
+    }
     /**
      * Creates a new `BundleBuilder` instance to package selected Firestore data into
      * a bundle.
@@ -534,7 +727,9 @@ export declare class Firestore implements firestore.Firestore {
      * and the timestamp associated with the built bundle to tell if it has been loaded already.
      * If not specified, a random identifier will be used.
      */
-    bundle(name?: string): BundleBuilder;
+    bundle(name) {
+        return new bundle_1.BundleBuilder(name || util_1.autoId());
+    }
     /**
      * Function executed by {@link Firestore#runTransaction} within the transaction
      * context.
@@ -632,7 +827,34 @@ export declare class Firestore implements firestore.Firestore {
      *   console.log(`Count updated to ${res}`);
      * });
      */
-    runTransaction<T>(updateFunction: (transaction: Transaction) => Promise<T>, transactionOptions?: firestore.ReadWriteTransactionOptions | firestore.ReadOnlyTransactionOptions): Promise<T>;
+    runTransaction(updateFunction, transactionOptions) {
+        validate_1.validateFunction('updateFunction', updateFunction);
+        const tag = util_1.requestTag();
+        let maxAttempts = exports.DEFAULT_MAX_TRANSACTION_ATTEMPTS;
+        let readOnly = false;
+        let readTime;
+        if (transactionOptions) {
+            validate_1.validateObject('transactionOptions', transactionOptions);
+            validate_1.validateBoolean('transactionOptions.readOnly', transactionOptions.readOnly, { optional: true });
+            if (transactionOptions.readOnly) {
+                validate_1.validateTimestamp('transactionOptions.readTime', transactionOptions.readTime, { optional: true });
+                readOnly = true;
+                readTime = transactionOptions.readTime;
+                maxAttempts = 1;
+            }
+            else {
+                validate_1.validateInteger('transactionOptions.maxAttempts', transactionOptions.maxAttempts, { optional: true, minValue: 1 });
+                maxAttempts =
+                    transactionOptions.maxAttempts || exports.DEFAULT_MAX_TRANSACTION_ATTEMPTS;
+            }
+        }
+        const transaction = new transaction_1.Transaction(this, tag);
+        return this.initializeIfNeeded(tag).then(() => transaction.runTransaction(updateFunction, {
+            maxAttempts,
+            readOnly,
+            readTime,
+        }));
+    }
     /**
      * Fetches the root collections that are associated with this Firestore
      * database.
@@ -647,7 +869,10 @@ export declare class Firestore implements firestore.Firestore {
      *   }
      * });
      */
-    listCollections(): Promise<CollectionReference[]>;
+    listCollections() {
+        const rootDocument = new reference_1.DocumentReference(this, path_1.ResourcePath.EMPTY);
+        return rootDocument.listCollections();
+    }
     /**
      * Retrieves multiple documents from Firestore.
      *
@@ -669,7 +894,22 @@ export declare class Firestore implements firestore.Firestore {
      *   console.log(`Second document: ${JSON.stringify(docs[1])}`);
      * });
      */
-    getAll<T>(...documentRefsOrReadOptions: Array<firestore.DocumentReference<T> | firestore.ReadOptions>): Promise<Array<DocumentSnapshot<T>>>;
+    getAll(...documentRefsOrReadOptions) {
+        validate_1.validateMinNumberOfArguments('Firestore.getAll', documentRefsOrReadOptions, 1);
+        const { documents, fieldMask } = transaction_1.parseGetAllArguments(documentRefsOrReadOptions);
+        const tag = util_1.requestTag();
+        // Capture the error stack to preserve stack tracing across async calls.
+        const stack = Error().stack;
+        return this.initializeIfNeeded(tag)
+            .then(() => {
+            const reader = new document_reader_1.DocumentReader(this, documents);
+            reader.fieldMask = fieldMask || undefined;
+            return reader.get(tag);
+        })
+            .catch(err => {
+            throw util_1.wrapError(err, stack);
+        });
+    }
     /**
      * Registers a listener on this client, incrementing the listener count. This
      * is used to verify that all listeners are unsubscribed when terminate() is
@@ -678,7 +918,9 @@ export declare class Firestore implements firestore.Firestore {
      * @private
      * @internal
      */
-    registerListener(): void;
+    registerListener() {
+        this.registeredListenersCount += 1;
+    }
     /**
      * Unregisters a listener on this client, decrementing the listener count.
      * This is used to verify that all listeners are unsubscribed when terminate()
@@ -687,7 +929,9 @@ export declare class Firestore implements firestore.Firestore {
      * @private
      * @internal
      */
-    unregisterListener(): void;
+    unregisterListener() {
+        this.registeredListenersCount -= 1;
+    }
     /**
      * Increments the number of open BulkWriter instances. This is used to verify
      * that all pending operations are complete when terminate() is called.
@@ -695,7 +939,9 @@ export declare class Firestore implements firestore.Firestore {
      * @private
      * @internal
      */
-    _incrementBulkWritersCount(): void;
+    _incrementBulkWritersCount() {
+        this.bulkWritersCount += 1;
+    }
     /**
      * Decrements the number of open BulkWriter instances. This is used to verify
      * that all pending operations are complete when terminate() is called.
@@ -703,7 +949,9 @@ export declare class Firestore implements firestore.Firestore {
      * @private
      * @internal
      */
-    _decrementBulkWritersCount(): void;
+    _decrementBulkWritersCount() {
+        this.bulkWritersCount -= 1;
+    }
     /**
      * Recursively deletes all documents and subcollections at and under the
      * specified level.
@@ -739,7 +987,9 @@ export declare class Firestore implements firestore.Firestore {
      *   });
      * await firestore.recursiveDelete(docRef, bulkWriter);
      */
-    recursiveDelete(ref: firestore.CollectionReference<unknown> | firestore.DocumentReference<unknown>, bulkWriter?: BulkWriter): Promise<void>;
+    recursiveDelete(ref, bulkWriter) {
+        return this._recursiveDelete(ref, recursive_delete_1.RECURSIVE_DELETE_MAX_PENDING_OPS, recursive_delete_1.RECURSIVE_DELETE_MIN_PENDING_OPS, bulkWriter);
+    }
     /**
      * This overload is not private in order to test the query resumption with
      * startAfter() once the RecursiveDelete instance has MAX_PENDING_OPS pending.
@@ -747,13 +997,26 @@ export declare class Firestore implements firestore.Firestore {
      * @private
      * @internal
      */
-    _recursiveDelete(ref: firestore.CollectionReference<unknown> | firestore.DocumentReference<unknown>, maxPendingOps: number, minPendingOps: number, bulkWriter?: BulkWriter): Promise<void>;
+    // Visible for testing
+    _recursiveDelete(ref, maxPendingOps, minPendingOps, bulkWriter) {
+        const writer = bulkWriter !== null && bulkWriter !== void 0 ? bulkWriter : this.getBulkWriter();
+        const deleter = new recursive_delete_1.RecursiveDelete(this, writer, ref, maxPendingOps, minPendingOps);
+        return deleter.run();
+    }
     /**
      * Terminates the Firestore client and closes all open streams.
      *
      * @return A Promise that resolves when the client is terminated.
      */
-    terminate(): Promise<void>;
+    terminate() {
+        if (this.registeredListenersCount > 0 || this.bulkWritersCount > 0) {
+            return Promise.reject('All onSnapshot() listeners must be unsubscribed, and all BulkWriter ' +
+                'instances must be closed before terminating the client. ' +
+                `There are ${this.registeredListenersCount} active listeners and ` +
+                `${this.bulkWritersCount} open BulkWriter instances.`);
+        }
+        return this._clientPool.terminate();
+    }
     /**
      * Returns the Project ID to serve as the JSON representation of this
      * Firestore instance.
@@ -761,7 +1024,9 @@ export declare class Firestore implements firestore.Firestore {
      * @return An object that contains the project ID (or `undefined` if not yet
      * available).
      */
-    toJSON(): object;
+    toJSON() {
+        return { projectId: this._projectId };
+    }
     /**
      * Initializes the client if it is not already initialized. All methods in the
      * SDK can be used after this method completes.
@@ -772,13 +1037,54 @@ export declare class Firestore implements firestore.Firestore {
      * initialization.
      * @return A Promise that resolves when the client is initialized.
      */
-    initializeIfNeeded(requestTag: string): Promise<void>;
+    async initializeIfNeeded(requestTag) {
+        this._settingsFrozen = true;
+        if (this._settings.ssl === false) {
+            // If SSL is false, we assume that we are talking to the emulator. We
+            // provide an Authorization header by default so that the connection is
+            // recognized as admin in Firestore Emulator. (If for some reason we're
+            // not connecting to the emulator, then this will result in denials with
+            // invalid token, rather than behave like clients not logged in. The user
+            // can then provide their own Authorization header, which will take
+            // precedence).
+            this._settings.customHeaders = {
+                Authorization: 'Bearer owner',
+                ...this._settings.customHeaders,
+            };
+        }
+        if (this._projectId === undefined) {
+            try {
+                this._projectId = await this._clientPool.run(requestTag, gapicClient => gapicClient.getProjectId());
+                logger_1.logger('Firestore.initializeIfNeeded', null, 'Detected project ID: %s', this._projectId);
+            }
+            catch (err) {
+                logger_1.logger('Firestore.initializeIfNeeded', null, 'Failed to detect project ID: %s', err);
+                return Promise.reject(err);
+            }
+        }
+    }
     /**
      * Returns GAX call options that set the cloud resource header.
      * @private
      * @internal
      */
-    private createCallOptions;
+    createCallOptions(methodName, retryCodes) {
+        var _a;
+        const callOptions = {
+            otherArgs: {
+                headers: {
+                    [CLOUD_RESOURCE_HEADER]: this.formattedName,
+                    ...this._settings.customHeaders,
+                    ...(_a = this._settings[methodName]) === null || _a === void 0 ? void 0 : _a.customHeaders,
+                },
+            },
+        };
+        if (retryCodes) {
+            const retryParams = util_1.getRetryParams(methodName);
+            callOptions.retry = new (require('google-gax').RetryOptions)(retryCodes, retryParams);
+        }
+        return callOptions;
+    }
     /**
      * A function returning a Promise that can be retried.
      *
@@ -803,7 +1109,27 @@ export declare class Firestore implements firestore.Firestore {
      * @returns A Promise with the function's result if successful within
      * `attemptsRemaining`. Otherwise, returns the last rejected Promise.
      */
-    private _retry;
+    async _retry(methodName, requestTag, func) {
+        const backoff = new backoff_1.ExponentialBackoff();
+        let lastError = undefined;
+        for (let attempt = 0; attempt < exports.MAX_REQUEST_RETRIES; ++attempt) {
+            if (lastError) {
+                logger_1.logger('Firestore._retry', requestTag, 'Retrying request that failed with error:', lastError);
+            }
+            try {
+                await backoff.backoffAndWait();
+                return await func();
+            }
+            catch (err) {
+                lastError = err;
+                if (util_1.isPermanentRpcError(err, methodName)) {
+                    break;
+                }
+            }
+        }
+        logger_1.logger('Firestore._retry', requestTag, 'Request failed with error:', lastError);
+        return Promise.reject(lastError);
+    }
     /**
      * Waits for the provided stream to become active and returns a paused but
      * healthy stream. If an error occurs before the first byte is read, the
@@ -820,7 +1146,66 @@ export declare class Firestore implements firestore.Firestore {
      * @returns A guaranteed healthy stream that should be used instead of
      * `backendStream`.
      */
-    private _initializeStream;
+    _initializeStream(backendStream, lifetime, requestTag, request) {
+        const resultStream = new stream_1.PassThrough({ objectMode: true });
+        resultStream.pause();
+        /**
+         * Whether we have resolved the Promise and returned the stream to the
+         * caller.
+         */
+        let streamInitialized = false;
+        return new Promise((resolve, reject) => {
+            function streamReady() {
+                if (!streamInitialized) {
+                    streamInitialized = true;
+                    logger_1.logger('Firestore._initializeStream', requestTag, 'Releasing stream');
+                    resolve(resultStream);
+                }
+            }
+            function streamEnded() {
+                logger_1.logger('Firestore._initializeStream', requestTag, 'Received stream end');
+                resultStream.unpipe(backendStream);
+                resolve(resultStream);
+                lifetime.resolve();
+            }
+            function streamFailed(err) {
+                if (!streamInitialized) {
+                    // If we receive an error before we were able to receive any data,
+                    // reject this stream.
+                    logger_1.logger('Firestore._initializeStream', requestTag, 'Received initial error:', err);
+                    reject(err);
+                }
+                else {
+                    logger_1.logger('Firestore._initializeStream', requestTag, 'Received stream error:', err);
+                    // We execute the forwarding of the 'error' event via setImmediate() as
+                    // V8 guarantees that the Promise chain returned from this method
+                    // is resolved before any code executed via setImmediate(). This
+                    // allows the caller to attach an error handler.
+                    setImmediate(() => {
+                        resultStream.emit('error', err);
+                    });
+                }
+            }
+            backendStream.on('data', () => streamReady());
+            backendStream.on('error', err => streamFailed(err));
+            backendStream.on('end', () => streamEnded());
+            backendStream.on('close', () => streamEnded());
+            backendStream.on('finish', () => streamEnded());
+            backendStream.pipe(resultStream);
+            if (request) {
+                logger_1.logger('Firestore._initializeStream', requestTag, 'Sending request: %j', request);
+                backendStream.write(request, 'utf-8', err => {
+                    if (err) {
+                        streamFailed(err);
+                    }
+                    else {
+                        logger_1.logger('Firestore._initializeStream', requestTag, 'Marking stream as healthy');
+                        streamReady();
+                    }
+                });
+            }
+        });
+    }
     /**
      * A funnel for all non-streaming API requests, assigning a project ID where
      * necessary within the request options.
@@ -835,7 +1220,21 @@ export declare class Firestore implements firestore.Firestore {
      * provided, retry is based on the behavior as defined in the ServiceConfig.
      * @returns A Promise with the request result.
      */
-    request<Req, Resp>(methodName: FirestoreUnaryMethod, request: Req, requestTag: string, retryCodes?: number[]): Promise<Resp>;
+    request(methodName, request, requestTag, retryCodes) {
+        const callOptions = this.createCallOptions(methodName, retryCodes);
+        return this._clientPool.run(requestTag, async (gapicClient) => {
+            try {
+                logger_1.logger('Firestore.request', requestTag, 'Sending request: %j', request);
+                const [result] = await gapicClient[methodName](request, callOptions);
+                logger_1.logger('Firestore.request', requestTag, 'Received response: %j', result);
+                return result;
+            }
+            catch (err) {
+                logger_1.logger('Firestore.request', requestTag, 'Received error:', err);
+                return Promise.reject(err);
+            }
+        });
+    }
     /**
      * A funnel for streaming API requests, assigning a project ID where necessary
      * within the request options.
@@ -851,14 +1250,50 @@ export declare class Firestore implements firestore.Firestore {
      * @param requestTag A unique client-assigned identifier for this request.
      * @returns A Promise with the resulting read-only stream.
      */
-    requestStream(methodName: FirestoreStreamingMethod, request: {}, requestTag: string): Promise<Duplex>;
+    requestStream(methodName, request, requestTag) {
+        const callOptions = this.createCallOptions(methodName);
+        const bidirectional = methodName === 'listen';
+        return this._retry(methodName, requestTag, () => {
+            const result = new util_1.Deferred();
+            this._clientPool.run(requestTag, async (gapicClient) => {
+                logger_1.logger('Firestore.requestStream', requestTag, 'Sending request: %j', request);
+                try {
+                    const stream = bidirectional
+                        ? gapicClient[methodName](callOptions)
+                        : gapicClient[methodName](request, callOptions);
+                    const logStream = new stream_1.Transform({
+                        objectMode: true,
+                        transform: (chunk, encoding, callback) => {
+                            logger_1.logger('Firestore.requestStream', requestTag, 'Received response: %j', chunk);
+                            callback();
+                        },
+                    });
+                    stream.pipe(logStream);
+                    const lifetime = new util_1.Deferred();
+                    const resultStream = await this._initializeStream(stream, lifetime, requestTag, bidirectional ? request : undefined);
+                    resultStream.on('end', () => stream.end());
+                    result.resolve(resultStream);
+                    // While we return the stream to the callee early, we don't want to
+                    // release the GAPIC client until the callee has finished processing the
+                    // stream.
+                    return lifetime.promise;
+                }
+                catch (e) {
+                    result.reject(e);
+                }
+            });
+            return result.promise;
+        });
+    }
 }
+exports.Firestore = Firestore;
 /**
  * A logging function that takes a single string.
  *
  * @callback Firestore~logFunction
  * @param {string} Log message
  */
+// tslint:disable-next-line:no-default-export
 /**
  * The default export of the `@google-cloud/firestore` package is the
  * {@link Firestore} class.
@@ -890,4 +1325,51 @@ export declare class Firestore implements firestore.Firestore {
  * region_tag:firestore_quickstart
  * Full quickstart example:
  */
-export default Firestore;
+// tslint:disable-next-line:no-default-export
+exports.default = Firestore;
+// Horrible hack to ensure backwards compatibility with <= 17.0, which allows
+// users to call the default constructor via
+// `const Fs = require(`@google-cloud/firestore`); new Fs()`;
+const existingExports = module.exports;
+module.exports = Firestore;
+module.exports = Object.assign(module.exports, existingExports);
+/**
+ * {@link v1beta1} factory function.
+ *
+ * @private
+ * @internal
+ * @name Firestore.v1beta1
+ * @type {function}
+ */
+Object.defineProperty(module.exports, 'v1beta1', {
+    // The v1beta1 module is very large. To avoid pulling it in from static
+    // scope, we lazy-load the module.
+    get: () => require('./v1beta1'),
+});
+/**
+ * {@link v1} factory function.
+ *
+ * @private
+ * @internal
+ * @name Firestore.v1
+ * @type {function}
+ */
+Object.defineProperty(module.exports, 'v1', {
+    // The v1 module is very large. To avoid pulling it in from static
+    // scope, we lazy-load  the module.
+    get: () => require('./v1'),
+});
+/**
+ * {@link Status} factory function.
+ *
+ * @private
+ * @internal
+ * @name Firestore.GrpcStatus
+ * @type {function}
+ */
+Object.defineProperty(module.exports, 'GrpcStatus', {
+    // The gax module is very large. To avoid pulling it in from static
+    // scope, we lazy-load the module.
+    get: () => require('google-gax').Status,
+});
+//# sourceMappingURL=index.js.map
