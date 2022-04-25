@@ -1,55 +1,84 @@
-# Installation
-> `npm install --save @types/range-parser`
+# range-parser
 
-# Summary
-This package contains type definitions for range-parser (https://github.com/jshttp/range-parser).
+[![NPM Version][npm-version-image]][npm-url]
+[![NPM Downloads][npm-downloads-image]][npm-url]
+[![Node.js Version][node-image]][node-url]
+[![Build Status][travis-image]][travis-url]
+[![Test Coverage][coveralls-image]][coveralls-url]
 
-# Details
-Files were exported from https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/range-parser.
-## [index.d.ts](https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/range-parser/index.d.ts)
-````ts
-// Type definitions for range-parser 1.2
-// Project: https://github.com/jshttp/range-parser
-// Definitions by: Tomek Łaziuk <https://github.com/tlaziuk>
-// Definitions: https://github.com/DefinitelyTyped/DefinitelyTyped
+Range header field parser.
 
-/**
- * When ranges are returned, the array has a "type" property which is the type of
- * range that is required (most commonly, "bytes"). Each array element is an object
- * with a "start" and "end" property for the portion of the range.
- *
- * @returns `-1` when unsatisfiable and `-2` when syntactically invalid, ranges otherwise.
- */
-declare function RangeParser(size: number, str: string, options?: RangeParser.Options): RangeParser.Result | RangeParser.Ranges;
+## Installation
 
-declare namespace RangeParser {
-    interface Ranges extends Array<Range> {
-        type: string;
-    }
-    interface Range {
-        start: number;
-        end: number;
-    }
-    interface Options {
-        /**
-         * The "combine" option can be set to `true` and overlapping & adjacent ranges
-         * will be combined into a single range.
-         */
-        combine?: boolean | undefined;
-    }
-    type ResultUnsatisfiable = -1;
-    type ResultInvalid = -2;
-    type Result = ResultUnsatisfiable | ResultInvalid;
+This is a [Node.js](https://nodejs.org/en/) module available through the
+[npm registry](https://www.npmjs.com/). Installation is done using the
+[`npm install` command](https://docs.npmjs.com/getting-started/installing-npm-packages-locally):
+
+```sh
+$ npm install range-parser
+```
+
+## API
+
+<!-- eslint-disable no-unused-vars -->
+
+```js
+var parseRange = require('range-parser')
+```
+
+### parseRange(size, header, options)
+
+Parse the given `header` string where `size` is the maximum size of the resource.
+An array of ranges will be returned or negative numbers indicating an error parsing.
+
+  * `-2` signals a malformed header string
+  * `-1` signals an unsatisfiable range
+
+<!-- eslint-disable no-undef -->
+
+```js
+// parse header from request
+var range = parseRange(size, req.headers.range)
+
+// the type of the range
+if (range.type === 'bytes') {
+  // the ranges
+  range.forEach(function (r) {
+    // do something with r.start and r.end
+  })
 }
+```
 
-export = RangeParser;
+#### Options
 
-````
+These properties are accepted in the options object.
 
-### Additional Details
- * Last updated: Wed, 07 Jul 2021 17:02:53 GMT
- * Dependencies: none
- * Global values: none
+##### combine
 
-# Credits
-These definitions were written by [Tomek Łaziuk](https://github.com/tlaziuk).
+Specifies if overlapping & adjacent ranges should be combined, defaults to `false`.
+When `true`, ranges will be combined and returned as if they were specified that
+way in the header.
+
+<!-- eslint-disable no-undef -->
+
+```js
+parseRange(100, 'bytes=50-55,0-10,5-10,56-60', { combine: true })
+// => [
+//      { start: 0,  end: 10 },
+//      { start: 50, end: 60 }
+//    ]
+```
+
+## License
+
+[MIT](LICENSE)
+
+[coveralls-image]: https://badgen.net/coveralls/c/github/jshttp/range-parser/master
+[coveralls-url]: https://coveralls.io/r/jshttp/range-parser?branch=master
+[node-image]: https://badgen.net/npm/node/range-parser
+[node-url]: https://nodejs.org/en/download
+[npm-downloads-image]: https://badgen.net/npm/dm/range-parser
+[npm-url]: https://npmjs.org/package/range-parser
+[npm-version-image]: https://badgen.net/npm/v/range-parser
+[travis-image]: https://badgen.net/travis/jshttp/range-parser/master
+[travis-url]: https://travis-ci.org/jshttp/range-parser
